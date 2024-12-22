@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Neighbour Alert System</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    #map {
+      height: 70vh;
+      margin-bottom: 10px;
+    }
+    #controls {
+      display: flex;
+      justify-content: space-around;
+      margin-bottom: 20px;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    #messageForm {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    #messageForm input {
+      width: 60%;
+      padding: 10px;
+      margin-right: 10px;
+    }
+    #messageForm button {
+      padding: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="controls">
+    <button onclick="sendMessage('Emergency')">Emergency</button>
+    <button onclick="sendMessage('Pet Lost')">Pet Lost</button>
+  </div>
+  <div id="messageForm">
+    <input type="text" id="messageInput" placeholder="Enter your message" />
+    <button onclick="sendCustomMessage()">Send</button>
+  </div>
+
+  <script>
+    const map = L.map('map').setView([0, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    const socket = io();
+    const userMarker = L.marker([0, 0]).addTo(map).bindPopup("You are here");
+    const displayedMarkers = {}; // To keep track of displayed markers
+
+    function updateUserLocation(lat, lng) {
+      userMarker.setLatLng([lat, lng]).update();
+      map.setView([lat, lng], 14);
+    }
+
+    socket.on('message', (data) => {
+      const { from, message, latitude, longitude } = data;
+      if (!displayedMarkers[from]) {
+        const marker = L.marker([latitude, longitude]).addTo(map);
+        marker.bindPopup(`Message from ${from}: ${message}`).openPopup();
+        displayedMarkers[from] = marker;
+      } else {
+        const marker = displayedMarkers[from];
+        marker.setLatLng([latitude, longitude]);
+        marker.bindPopup(`Message from ${from}: ${message}`).openPopup();
+      }
+    });
+
+    function sendLocationMessage(message) {
+      if ('geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const deviceId = "yourUniqueDeviceID"; // Replace with a unique ID for the device
+            const { latitude, longitude } = position.coords;
+
+            fetch('/message', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ deviceId, latitude, longitude, message }),
+            })
+              .then((response) => response.json())
+              .then((data) => {
+                console.log('Message sent:', data);
+                updateUserLocation(latitude, longitude);
+              })
+              .catch((error) => {
+                console.error('Error sending message:', error);
+              });
+          },
+          (error) => {
+            console.error('Error getting location:', error);
+          }
+        );
+      } else {
+        alert('Geolocation is not supported by your browser.');
+      }
+    }
+
+    function sendMessage(type) {
+      sendLocationMessage(type);
+    }
+
+    function sendCustomMessage() {
+      const messageInput = document.getElementById('messageInput');
+      const message = messageInput.value.trim();
+      if (message) {
+        sendLocationMessage(message);
+        messageInput.value = '';
+      } else {
+        alert('Please enter a message');
+      }
+    }
+
+    // Get the user's location on page load
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          updateUserLocation(latitude, longitude);
+        },
+        (error) => {
+          console.error('Error getting location:', error);
+        }
+      );
+    }
+  </script>
+</body>
+</html>
